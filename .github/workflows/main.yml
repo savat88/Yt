@@ -9,24 +9,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      ANDROID_NDK_VERSION: r27b
-      ANDROID_API: 21
-      ARCH: arm64-v8a
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # -----------------------------
-      # 1️⃣ Linux .so build
-      # -----------------------------
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: 3.12
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install nuitka cython
@@ -35,13 +27,16 @@ jobs:
         run: |
           git clone https://github.com/yt-dlp/yt-dlp.git
 
-      - name: Build Linux .so
+      - name: Build Linux .so with Nuitka
         run: |
           cd yt-dlp
-          python -m nuitka --module yt_dlp/__main__.py --jobs=2 --output-dir=build
+          # ใช้ dot notation แทน slash
+          python -m nuitka --module yt_dlp.__main__ --jobs=2 --output-dir=build
           cd ..
           mkdir -p output
-          cp yt-dlp/build/__main__.cpython-312.so output/libytdlp-linux.so
+          # หาไฟล์ .so จริง ๆ ที่ Nuitka สร้าง
+          SO_FILE=$(find yt-dlp/build -name "*.so" | head -n 1)
+          cp "$SO_FILE" output/libytdlp-linux.so
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
@@ -49,19 +44,15 @@ jobs:
           name: libytdlp-linux-so
           path: output/libytdlp-linux.so
 
-      # -----------------------------
-      # 2️⃣ Android arm64-v8a .so build
-      # -----------------------------
       - name: Download Android NDK
         run: |
-          wget https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip
-          unzip android-ndk-${ANDROID_NDK_VERSION}-linux.zip
+          wget https://dl.google.com/android/repository/android-ndk-r27-linux.zip
+          unzip android-ndk-r27-linux.zip
 
       - name: Setup Android NDK
         run: |
-          export NDK=$PWD/android-ndk-${ANDROID_NDK_VERSION}
+          export NDK=$PWD/android-ndk-r27
           export PATH=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
-          $NDK/ndk-build --version
 
       - name: Prepare Python Android prebuilt
         run: |
@@ -72,7 +63,8 @@ jobs:
       - name: Build Android .so
         run: |
           mkdir -p output
-          aarch64-linux-android${ANDROID_API}-clang -shared \
+          # ใช้ prebuilt Python + NDK cross compile
+          aarch64-linux-android21-clang -shared \
             -Ipython-android/include/python3.12 \
             yt-dlp/yt_dlp/__main__.py \
             -o output/libytdlp-android.so \
