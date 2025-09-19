@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-android:
+  build-linux-so:
     runs-on: ubuntu-latest
 
     steps:
@@ -27,27 +27,16 @@ jobs:
         run: |
           git clone https://github.com/yt-dlp/yt-dlp.git
 
-      - name: Build with Nuitka (Linux)
+      - name: Build with Nuitka (Linux .so)
         run: |
           cd yt-dlp
           python -m nuitka --module yt_dlp/__main__.py --jobs=2 --output-dir=build
           cd ..
-
-      - name: Download Android NDK
-        run: |
-          wget https://dl.google.com/android/repository/android-ndk-r27-linux.zip
-          unzip android-ndk-r27-linux.zip
-
-      - name: Cross-compile libytdlp.so
-        run: |
-          export NDK=$PWD/android-ndk-r27
-          export PATH=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
           mkdir -p output
-          # สมมติว่ามี Python Android prebuilt ที่เตรียมไว้
-          aarch64-linux-android21-clang -shared yt-dlp/build/__main__.o -o output/libytdlp.so
+          cp yt-dlp/build/__main__.cpython-312.so output/libytdlp-linux.so
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libytdlp-so
-          path: output/libytdlp.so
+          name: libytdlp-linux-so
+          path: output/libytdlp-linux.so
