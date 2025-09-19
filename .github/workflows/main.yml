@@ -30,7 +30,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 4️⃣ Create Android Library project
+      # 4️⃣ Create Android Library project + add Java classes
       - name: Create Android Library Project
         run: |
           mkdir -p ytldp-lib/src/main/java/com/ytdlp/android
@@ -81,8 +81,7 @@ jobs:
           }
           EOF
 
-          # Simple Java class
-          mkdir -p ytldp-lib/src/main/java/com/ytdlp/android
+          # YtDlpLoader.java
           cat > ytldp-lib/src/main/java/com/ytdlp/android/YtDlpLoader.java <<'EOF'
           package com.ytdlp.android;
 
@@ -91,6 +90,94 @@ jobs:
           public class YtDlpLoader {
               public static String getYtDlpAssetPath(Context context) {
                   return "yt-dlp"; // path inside assets
+              }
+          }
+          EOF
+
+          # YtDlpRequest.java
+          cat > ytldp-lib/src/main/java/com/ytdlp/android/YtDlpRequest.java <<'EOF'
+          package com.ytdlp.android;
+
+          public class YtDlpRequest {
+              private String url;
+              private String formatId;
+              private boolean audioOnly;
+
+              public YtDlpRequest(String url) {
+                  this.url = url;
+                  this.formatId = "best";
+                  this.audioOnly = false;
+              }
+
+              public String getUrl() { return url; }
+              public String getFormatId() { return formatId; }
+              public void setFormatId(String formatId) { this.formatId = formatId; }
+              public boolean isAudioOnly() { return audioOnly; }
+              public void setAudioOnly(boolean audioOnly) { this.audioOnly = audioOnly; }
+          }
+          EOF
+
+          # YtDlpResponse.java
+          cat > ytldp-lib/src/main/java/com/ytdlp/android/YtDlpResponse.java <<'EOF'
+          package com.ytdlp.android;
+
+          public class YtDlpResponse {
+              private boolean success;
+              private String message;
+              private String videoUrl;
+              private String title;
+
+              public YtDlpResponse(boolean success, String message) {
+                  this.success = success;
+                  this.message = message;
+              }
+
+              public boolean isSuccess() { return success; }
+              public String getMessage() { return message; }
+              public String getVideoUrl() { return videoUrl; }
+              public void setVideoUrl(String videoUrl) { this.videoUrl = videoUrl; }
+              public String getTitle() { return title; }
+              public void setTitle(String title) { this.title = title; }
+          }
+          EOF
+
+          # YtDlp.java
+          cat > ytldp-lib/src/main/java/com/ytdlp/android/YtDlp.java <<'EOF'
+          package com.ytdlp.android;
+
+          import android.content.Context;
+          import android.util.Log;
+          import java.io.File;
+
+          public class YtDlp {
+              private static final String TAG = "YtDlp";
+
+              public static YtDlpResponse download(Context context, YtDlpRequest request, String outputDir) {
+                  try {
+                      String binaryPath = outputDir + "/yt-dlp";
+                      Utils.copyAssetToFile(context, "yt-dlp/yt-dlp", binaryPath);
+
+                      String cmd = binaryPath + " -f " + request.getFormatId() + " -o \"" +
+                              outputDir + "/%(title)s.%(ext)s\" " + request.getUrl();
+                      if (request.isAudioOnly()) {
+                          cmd += " --extract-audio --audio-format mp3";
+                      }
+
+                      Log.d(TAG, "Executing: " + cmd);
+                      Process process = Runtime.getRuntime().exec(cmd);
+                      int exitCode = process.waitFor();
+
+                      if (exitCode == 0) {
+                          YtDlpResponse response = new YtDlpResponse(true, "Download complete");
+                          response.setVideoUrl(outputDir);
+                          return response;
+                      } else {
+                          return new YtDlpResponse(false, "Download failed with code " + exitCode);
+                      }
+                  } catch (Exception e) {
+                      Log.e(TAG, "YtDlp download error", e);
+                      return new YtDlpResponse(false, e.getMessage());
+                  }
               }
           }
           EOF
