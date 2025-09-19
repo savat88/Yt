@@ -68,11 +68,11 @@ jobs:
           EOF
 
           # Simple Java class
+          mkdir -p ytldp-lib/src/main/java/com/ytdlp/android
           cat > ytldp-lib/src/main/java/com/ytdlp/android/YtDlpLoader.java <<'EOF'
           package com.ytdlp.android;
 
           import android.content.Context;
-          import java.io.File;
 
           public class YtDlpLoader {
               public static String getYtDlpAssetPath(Context context) {
@@ -80,6 +80,10 @@ jobs:
               }
           }
           EOF
+
+          # สร้าง Gradle wrapper
+          cd ytldp-lib
+          gradle wrapper
 
       # 5️⃣ Build AAR
       - name: Build AAR
