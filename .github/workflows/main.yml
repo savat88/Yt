@@ -35,11 +35,35 @@ jobs:
         run: |
           mkdir -p ytldp-lib/src/main/java/com/ytdlp/android
 
+          # root build.gradle
+          cat > build.gradle <<'EOF'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath "com.android.tools.build:gradle:8.6.0"
+              }
+          }
+
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
+
+          # settings.gradle
+          cat > settings.gradle <<'EOF'
+          include ':ytldp-lib'
+          rootProject.name = "yt-dlp-android"
+          EOF
+
           # build.gradle ของโมดูล
           cat > ytldp-lib/build.gradle <<'EOF'
-          plugins {
-              id 'com.android.library'
-          }
+          apply plugin: 'com.android.library'
 
           android {
               namespace "com.ytdlp.android"
@@ -55,16 +79,6 @@ jobs:
                   targetCompatibility JavaVersion.VERSION_11
               }
           }
-
-          dependencies {
-              // add dependencies if needed
-          }
-          EOF
-
-          # settings.gradle ของ root
-          cat > settings.gradle <<'EOF'
-          include ':ytldp-lib'
-          rootProject.name = "yt-dlp-android"
           EOF
 
           # Simple Java class
