@@ -35,7 +35,7 @@ jobs:
         run: |
           mkdir -p ytldp-lib/src/main/java/com/ytdlp/android
 
-          # build.gradle
+          # build.gradle ของโมดูล
           cat > ytldp-lib/build.gradle <<'EOF'
           plugins {
               id 'com.android.library'
@@ -61,8 +61,8 @@ jobs:
           }
           EOF
 
-          # settings.gradle
-          cat > ytldp-lib/settings.gradle <<'EOF'
+          # settings.gradle ของ root
+          cat > settings.gradle <<'EOF'
           include ':ytldp-lib'
           rootProject.name = "yt-dlp-android"
           EOF
@@ -81,15 +81,13 @@ jobs:
           }
           EOF
 
-          # สร้าง Gradle wrapper
-          cd ytldp-lib
+          # Generate gradlew
           gradle wrapper
 
       # 5️⃣ Build AAR
       - name: Build AAR
         run: |
-          cd ytldp-lib
-          ./gradlew assembleRelease
+          ./gradlew :ytldp-lib:assembleRelease
 
       # 6️⃣ Upload artifact
       - name: Upload AAR
