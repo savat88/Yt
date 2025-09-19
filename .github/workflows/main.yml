@@ -69,6 +69,20 @@ jobs:
         run: |
           mkdir -p python-android
           cd python-android
+          
+          # Build native python ก่อนสำหรับ build tools
+          if [ ! -f "/usr/local/bin/python3.12" ]; then
+            echo "Building native Python for build tools..."
+            wget -q https://www.python.org/ftp/python/3.12.5/Python-3.12.5.tgz
+            tar -xzf Python-3.12.5.tgz
+            cd Python-3.12.5
+            ./configure --enable-optimizations --prefix=/usr/local
+            make -j$(nproc)
+            sudo make install
+            cd ..
+          fi
+          
+          # Download Python source ใหม่สำหรับ cross-compile
           wget -q https://www.python.org/ftp/python/3.12.5/Python-3.12.5.tgz
           tar -xzf Python-3.12.5.tgz
           cd Python-3.12.5
@@ -86,8 +100,12 @@ jobs:
           export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
           export STRIP=$TOOLCHAIN/bin/llvm-strip
           export LD=$TOOLCHAIN/bin/ld
+          export PATH=/usr/local/bin:$PATH
           
-          # Configure สำหรับ cross-compile
+          # Configure สำหรับ cross-compile ด้วย --with-build-python
+          PYTHON_FOR_BUILD=$(which python3.12 || which python3)
+          echo "Using Python for build: $PYTHON_FOR_BUILD"
+          
           ./configure \
             --host=$TARGET \
             --build=x86_64-pc-linux-gnu \
@@ -95,6 +113,7 @@ jobs:
             --enable-shared \
             --disable-ipv6 \
             --without-ensurepip \
+            --with-build-python=$PYTHON_FOR_BUILD \
             ac_cv_file__dev_ptmx=yes \
             ac_cv_file__dev_ptc=no \
             ac_cv_have_long_long_format=yes
@@ -114,6 +133,13 @@ jobs:
           # สร้างโฟลเดอร์ output ถ้ายังไม่มี
           mkdir -p output
           
+          # ตรวจสอบว่ามี Python headers และ libraries
+          if [ ! -d "python-android/install/include" ]; then
+            echo "Error: Python Android build not found"
+            ls -la python-android/
+            exit 1
+          fi
+          
           # Cross-compile ด้วย CLANG
           $TOOLCHAIN/bin/$TARGET$API-clang -shared \
             -Ipython-android/install/include/python3.12 \
@@ -122,8 +148,8 @@ jobs:
             yt-dlp/yt_dlp/__main__.py \
             -o output/libytdlp-android.so \
             -fPIC \
-            -nostartfiles \
-            -target aarch64-linux-android21
+            -target aarch64-linux-android21 \
+            -Wl,-rpath,\$ORIGIN
           
           # ตรวจสอบว่าไฟล์ถูกสร้าง successfully
           if [ -f "output/libytdlp-android.so" ]; then
@@ -151,3 +177,9 @@ jobs:
           echo "=== Android .so ==="
           ls -la output/libytdlp-android.so
           file output/libytdlp-android.so || true
+
+      # 1️⃣2️⃣ Clean up NDK to save space
+      - name: Clean up NDK
+        run: |
+          rm -rf android-ndk-r27
+          rm -f android-ndk-r27-linux.zip
