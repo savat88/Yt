@@ -1,208 +1,86 @@
-name: Build libytdlp.so (Linux + Android)
+name: Build yt-dlp .aar
 
 on:
+  workflow_dispatch: # กดรันเองได้
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 jobs:
-  build:
+  build-aar:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repository
-      - name: Checkout code
+      # 1️⃣ Checkout workflow repo
+      - name: Checkout workflow repo
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Python
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      # 2️⃣ Clone yt-dlp
+      - name: Clone yt-dlp
+        run: |
+          git clone https://github.com/yt-dlp/yt-dlp.git
+          cd yt-dlp
+          git submodule update --init --recursive
+
+      # 3️⃣ Setup JDK + Android SDK
+      - name: Setup JDK
+        uses: actions/setup-java@v4
         with:
-          python-version: 3.12
+          java-version: '17'
+          distribution: 'temurin'
 
-      # 3️⃣ Install dependencies
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y git python3-pip clang cmake make pkg-config unzip wget patchelf build-essential
-          python -m pip install --upgrade pip
-          python -m pip install nuitka cython
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      # 4️⃣ Download yt-dlp (ถ้ายังไม่มี)
-      - name: Download yt-dlp
-        run: |
-          if [ ! -d "yt-dlp" ]; then
-            git clone https://github.com/yt-dlp/yt-dlp.git
-          fi
-
-      # 5️⃣ Build Linux .so with Nuitka
-      - name: Build Linux .so
+      # 4️⃣ Generate Gradle wrapper (ถ้า yt-dlp ไม่มี Gradle)
+      - name: Init Gradle Project
         run: |
           cd yt-dlp
-          python -m nuitka --module yt_dlp/__main__.py --jobs=2 --output-dir=build
-          cd ..
-          mkdir -p output
-          SO_FILE=$(find yt-dlp/build -name "*.so" | head -n 1)
-          if [ -f "$SO_FILE" ]; then
-            cp "$SO_FILE" output/libytdlp-linux.so
-            echo "Linux .so built successfully"
-          else
-            echo "Error: Linux .so file not found"
-            exit 1
-          fi
+          gradle init --type java-library
 
-      # 6️⃣ Upload Linux artifact
-      - name: Upload Linux artifact
+      # 5️⃣ สร้างโมดูล AAR
+      - name: Create Android Library Module
+        run: |
+          cd yt-dlp
+          mkdir -p library/src/main/java
+          cat > settings.gradle <<'EOF'
+          include ':library'
+          rootProject.name = "yt-dlp-android"
+          EOF
+
+          cat > library/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.library'
+          }
+
+          android {
+              namespace "com.ytdlp.android"
+              compileSdk 34
+
+              defaultConfig {
+                  minSdk 21
+                  targetSdk 34
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_11
+                  targetCompatibility JavaVersion.VERSION_11
+              }
+          }
+
+          dependencies {
+              // ใส่ dependency ของ yt-dlp ถ้ามี
+          }
+          EOF
+
+      # 6️⃣ Build AAR
+      - name: Build AAR
+        run: |
+          cd yt-dlp
+          ./gradlew :library:assembleRelease
+
+      # 7️⃣ Upload artifact
+      - name: Upload AAR
         uses: actions/upload-artifact@v4
         with:
-          name: libytdlp-linux-so
-          path: output/libytdlp-linux.so
-
-      # 7️⃣ Download Android NDK
-      - name: Download Android NDK
-        run: |
-          wget -q https://dl.google.com/android/repository/android-ndk-r27-linux.zip
-          unzip -q android-ndk-r27-linux.zip
-
-      # 8️⃣ Build Python for Android (arm64-v8a) cross-compile - FIXED
-      - name: Build Python for Android
-        run: |
-          mkdir -p python-android
-          cd python-android
-          
-          # ใช้ Python 3.11.9 แทน เพราะมีปัญหาน้อยกว่า
-          wget -q https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
-          tar -xzf Python-3.11.9.tgz
-          cd Python-3.11.9
-          
-          # ตั้งค่า environment variables สำหรับ cross-compile
-          export NDK=$PWD/../../android-ndk-r27
-          export TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64
-          export TARGET=aarch64-linux-android
-          export API=21
-          
-          # ตั้งค่า compile flags
-          export CC=$TOOLCHAIN/bin/$TARGET$API-clang
-          export CXX=$TOOLCHAIN/bin/$TARGET$API-clang++
-          export AR=$TOOLCHAIN/bin/llvm-ar
-          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
-          export STRIP=$TOOLCHAIN/bin/llvm-strip
-          export LD=$TOOLCHAIN/bin/ld
-          
-          # สร้างไฟล์ config.site สำหรับ disable functions ที่ไม่ supported ใน Android
-          cat > config.site << 'EOF'
-ac_cv_func_endgrent=no
-ac_cv_func_endpwent=no
-ac_cv_func_setgrent=no
-ac_cv_func_setpwent=no
-ac_cv_func_getgrent=no
-ac_cv_func_getpwent=no
-ac_cv_func_getgrnam_r=no
-ac_cv_func_getgrgid_r=no
-ac_cv_func_getpwnam_r=no
-ac_cv_func_getpwuid_r=no
-ac_cv_header_grp_h=no
-ac_cv_header_pwd_h=no
-ac_cv_lib_util_openpty=no
-ac_cv_func_chown=no
-ac_cv_func_fchown=no
-ac_cv_func_lchown=no
-EOF
-          
-          export CONFIG_SITE=config.site
-          
-          # Configure สำหรับ cross-compile
-          ./configure \
-            --host=$TARGET \
-            --build=x86_64-pc-linux-gnu \
-            --prefix=$PWD/../install \
-            --enable-shared \
-            --disable-ipv6 \
-            --without-ensurepip \
-            --with-system-ffi=no \
-            --without-readline \
-            --enable-loadable-sqlite-extensions=no \
-            ac_cv_file__dev_ptmx=yes \
-            ac_cv_file__dev_ptc=no \
-            ac_cv_have_long_long_format=yes
-          
-          # แก้ไข Makefile เพื่อ disable modules ที่มีปัญหา
-          sed -i 's/^\(.*grpmodule.*\)$/#\1/' Modules/Setup
-          sed -i 's/^\(.*pwdmodule.*$/#\1/' Modules/Setup
-          sed -i 's/^\(.*nismodule.*\)$/#\1/' Modules/Setup
-          sed -i 's/^\(.*spwdmodule.*\)$/#\1/' Modules/Setup
-          sed -i 's/^\(.*resourcemodule.*\)$/#\1/' Modules/Setup
-          
-          # Build และ install
-          make -j$(nproc) || make
-          make install
-          cd ../..
-
-      # 9️⃣ Cross-compile yt-dlp to Android .so - FIXED
-      - name: Build Android .so
-        run: |
-          export NDK=$PWD/android-ndk-r27
-          export TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64
-          export TARGET=aarch64-linux-android
-          export API=21
-          
-          mkdir -p output
-          
-          # ตรวจสอบ Python paths
-          PYTHON_INCLUDE="python-android/install/include/python3.11"
-          PYTHON_LIB="python-android/install/lib"
-          
-          if [ ! -d "$PYTHON_INCLUDE" ]; then
-            echo "Looking for Python include files..."
-            find python-android -name "Python.h" | head -5
-            PYTHON_INCLUDE=$(find python-android -name "Python.h" | head -1 | xargs dirname | xargs dirname)
-            echo "Using Python include path: $PYTHON_INCLUDE"
-          fi
-          
-          # Cross-compile ด้วย flags ที่เหมาะสม
-          $TOOLCHAIN/bin/$TARGET$API-clang -shared \
-            -I$PYTHON_INCLUDE \
-            -L$PYTHON_LIB \
-            -lpython3.11 \
-            yt-dlp/yt_dlp/__main__.py \
-            -o output/libytdlp-android.so \
-            -fPIC \
-            -target aarch64-linux-android21 \
-            -Wl,-rpath,\$ORIGIN \
-            -Wno-implicit-function-declaration \
-            -Wno-error=implicit-function-declaration
-          
-          # ตรวจสอบว่าไฟล์ถูกสร้าง successfully
-          if [ -f "output/libytdlp-android.so" ]; then
-            echo "Android .so built successfully"
-            file output/libytdlp-android.so
-          else
-            echo "Error: Android .so file not created"
-            # ลองใช้วิธี fallback
-            echo "Trying fallback method..."
-            cp $(find python-android -name "libpython*.so" | head -1) output/libytdlp-android.so
-          fi
-
-      # 🔟 Upload Android artifact
-      - name: Upload Android artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: libytdlp-android-so
-          path: output/libytdlp-android.so
-
-      # 1️⃣1️⃣ Verify both artifacts
-      - name: Verify artifacts
-        run: |
-          echo "=== Linux .so ==="
-          ls -la output/libytdlp-linux.so
-          file output/libytdlp-linux.so || true
-          
-          echo "=== Android .so ==="
-          ls -la output/libytdlp-android.so
-          file output/libytdlp-android.so || true
-
-      # 1️⃣2️⃣ Clean up NDK to save space
-      - name: Clean up NDK
-        run: |
-          rm -rf android-ndk-r27
-          rm -f android-ndk-r27-linux.zip
+          name: yt-dlp-aar
+          path: yt-dlp/library/build/outputs/aar/*.aar
