@@ -14,9 +14,10 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 2️⃣ Clone yt-dlp
+      # 2️⃣ Clone yt-dlp (เก็บใน assets)
       - name: Clone yt-dlp
         run: |
+          mkdir -p ytldp-lib/src/main/assets
           git clone https://github.com/yt-dlp/yt-dlp.git ytldp-lib/src/main/assets/yt-dlp
 
       # 3️⃣ Setup JDK + Android SDK
@@ -29,12 +30,12 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 4️⃣ สร้าง Android Library project
+      # 4️⃣ Create Android Library project
       - name: Create Android Library Project
         run: |
-          mkdir -p ytldp-lib/src/main/java
-          mkdir -p ytldp-lib/src/main/assets
+          mkdir -p ytldp-lib/src/main/java/com/ytdlp/android
 
+          # build.gradle
           cat > ytldp-lib/build.gradle <<'EOF'
           plugins {
               id 'com.android.library'
@@ -60,21 +61,22 @@ jobs:
           }
           EOF
 
+          # settings.gradle
           cat > ytldp-lib/settings.gradle <<'EOF'
           include ':ytldp-lib'
           rootProject.name = "yt-dlp-android"
           EOF
 
+          # Simple Java class
           cat > ytldp-lib/src/main/java/com/ytdlp/android/YtDlpLoader.java <<'EOF'
           package com.ytdlp.android;
 
           import android.content.Context;
           import java.io.File;
-          import java.io.IOException;
 
           public class YtDlpLoader {
-              public static File getYtDlpDir(Context context) {
-                  return new File(context.getAssets().toString() + "/yt-dlp");
+              public static String getYtDlpAssetPath(Context context) {
+                  return "yt-dlp"; // path inside assets
               }
           }
           EOF
@@ -83,7 +85,7 @@ jobs:
       - name: Build AAR
         run: |
           cd ytldp-lib
-          ./gradlew :assembleRelease
+          ./gradlew assembleRelease
 
       # 6️⃣ Upload artifact
       - name: Upload AAR
