@@ -43,7 +43,13 @@ jobs:
           cd ..
           mkdir -p output
           SO_FILE=$(find yt-dlp/build -name "*.so" | head -n 1)
-          cp "$SO_FILE" output/libytdlp-linux.so
+          if [ -f "$SO_FILE" ]; then
+            cp "$SO_FILE" output/libytdlp-linux.so
+            echo "Linux .so built successfully"
+          else
+            echo "Error: Linux .so file not found"
+            exit 1
+          fi
 
       # 6️⃣ Upload Linux artifact
       - name: Upload Linux artifact
@@ -55,42 +61,93 @@ jobs:
       # 7️⃣ Download Android NDK
       - name: Download Android NDK
         run: |
-          wget https://dl.google.com/android/repository/android-ndk-r27-linux.zip
-          unzip android-ndk-r27-linux.zip
+          wget -q https://dl.google.com/android/repository/android-ndk-r27-linux.zip
+          unzip -q android-ndk-r27-linux.zip
 
-      # 8️⃣ Setup Android NDK
-      - name: Setup Android NDK
-        run: |
-          export NDK=$PWD/android-ndk-r27
-          export PATH=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
-
-      # 9️⃣ Build Python for Android (arm64-v8a) cross-compile
+      # 8️⃣ Build Python for Android (arm64-v8a) cross-compile - FIXED
       - name: Build Python for Android
         run: |
           mkdir -p python-android
           cd python-android
-          wget https://www.python.org/ftp/python/3.12.1/Python-3.12.1.tgz
-          tar -xzf Python-3.12.1.tgz
-          cd Python-3.12.1
-          ./configure --host=aarch64-linux-android --prefix=$PWD/../install --enable-shared
+          wget -q https://www.python.org/ftp/python/3.12.5/Python-3.12.5.tgz
+          tar -xzf Python-3.12.5.tgz
+          cd Python-3.12.5
+          
+          # ตั้งค่า environment variables สำหรับ cross-compile
+          export NDK=$PWD/../../android-ndk-r27
+          export TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64
+          export TARGET=aarch64-linux-android
+          export API=21
+          
+          # ตั้งค่า compile flags
+          export CC=$TOOLCHAIN/bin/$TARGET$API-clang
+          export CXX=$TOOLCHAIN/bin/$TARGET$API-clang++
+          export AR=$TOOLCHAIN/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+          export STRIP=$TOOLCHAIN/bin/llvm-strip
+          export LD=$TOOLCHAIN/bin/ld
+          
+          # Configure สำหรับ cross-compile
+          ./configure \
+            --host=$TARGET \
+            --build=x86_64-pc-linux-gnu \
+            --prefix=$PWD/../install \
+            --enable-shared \
+            --disable-ipv6 \
+            --without-ensurepip \
+            ac_cv_file__dev_ptmx=yes \
+            ac_cv_file__dev_ptc=no \
+            ac_cv_have_long_long_format=yes
+          
           make -j$(nproc)
           make install
           cd ../..
 
-      # 🔟 Cross-compile yt-dlp to Android .so
+      # 9️⃣ Cross-compile yt-dlp to Android .so - FIXED
       - name: Build Android .so
         run: |
+          export NDK=$PWD/android-ndk-r27
+          export TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64
+          export TARGET=aarch64-linux-android
+          export API=21
+          
+          # สร้างโฟลเดอร์ output ถ้ายังไม่มี
           mkdir -p output
-          aarch64-linux-android21-clang -shared \
+          
+          # Cross-compile ด้วย CLANG
+          $TOOLCHAIN/bin/$TARGET$API-clang -shared \
             -Ipython-android/install/include/python3.12 \
             -Lpython-android/install/lib \
+            -lpython3.12 \
             yt-dlp/yt_dlp/__main__.py \
             -o output/libytdlp-android.so \
-            -fPIC
+            -fPIC \
+            -nostartfiles \
+            -target aarch64-linux-android21
+          
+          # ตรวจสอบว่าไฟล์ถูกสร้าง successfully
+          if [ -f "output/libytdlp-android.so" ]; then
+            echo "Android .so built successfully"
+            file output/libytdlp-android.so
+          else
+            echo "Error: Android .so file not created"
+            exit 1
+          fi
 
-      # 1️⃣1️⃣ Upload Android artifact
+      # 🔟 Upload Android artifact
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:
           name: libytdlp-android-so
           path: output/libytdlp-android.so
+
+      # 1️⃣1️⃣ Verify both artifacts
+      - name: Verify artifacts
+        run: |
+          echo "=== Linux .so ==="
+          ls -la output/libytdlp-linux.so
+          file output/libytdlp-linux.so || true
+          
+          echo "=== Android .so ==="
+          ls -la output/libytdlp-android.so
+          file output/libytdlp-android.so || true
