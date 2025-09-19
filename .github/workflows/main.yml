@@ -1,7 +1,7 @@
 name: Build yt-dlp .aar
 
 on:
-  workflow_dispatch: # กดรันเองได้
+  workflow_dispatch:
   push:
     branches: [ main ]
 
@@ -10,16 +10,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout workflow repo
-      - name: Checkout workflow repo
+      # 1️⃣ Checkout main repo
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       # 2️⃣ Clone yt-dlp
       - name: Clone yt-dlp
         run: |
-          git clone https://github.com/yt-dlp/yt-dlp.git
-          cd yt-dlp
-          git submodule update --init --recursive
+          git clone https://github.com/yt-dlp/yt-dlp.git ytldp-lib/src/main/assets/yt-dlp
 
       # 3️⃣ Setup JDK + Android SDK
       - name: Setup JDK
@@ -31,23 +29,13 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 4️⃣ Generate Gradle wrapper (ถ้า yt-dlp ไม่มี Gradle)
-      - name: Init Gradle Project
+      # 4️⃣ สร้าง Android Library project
+      - name: Create Android Library Project
         run: |
-          cd yt-dlp
-          gradle init --type java-library
+          mkdir -p ytldp-lib/src/main/java
+          mkdir -p ytldp-lib/src/main/assets
 
-      # 5️⃣ สร้างโมดูล AAR
-      - name: Create Android Library Module
-        run: |
-          cd yt-dlp
-          mkdir -p library/src/main/java
-          cat > settings.gradle <<'EOF'
-          include ':library'
-          rootProject.name = "yt-dlp-android"
-          EOF
-
-          cat > library/build.gradle <<'EOF'
+          cat > ytldp-lib/build.gradle <<'EOF'
           plugins {
               id 'com.android.library'
           }
@@ -68,19 +56,38 @@ jobs:
           }
 
           dependencies {
-              // ใส่ dependency ของ yt-dlp ถ้ามี
+              // add dependencies if needed
           }
           EOF
 
-      # 6️⃣ Build AAR
+          cat > ytldp-lib/settings.gradle <<'EOF'
+          include ':ytldp-lib'
+          rootProject.name = "yt-dlp-android"
+          EOF
+
+          cat > ytldp-lib/src/main/java/com/ytdlp/android/YtDlpLoader.java <<'EOF'
+          package com.ytdlp.android;
+
+          import android.content.Context;
+          import java.io.File;
+          import java.io.IOException;
+
+          public class YtDlpLoader {
+              public static File getYtDlpDir(Context context) {
+                  return new File(context.getAssets().toString() + "/yt-dlp");
+              }
+          }
+          EOF
+
+      # 5️⃣ Build AAR
       - name: Build AAR
         run: |
-          cd yt-dlp
-          ./gradlew :library:assembleRelease
+          cd ytldp-lib
+          ./gradlew :assembleRelease
 
-      # 7️⃣ Upload artifact
+      # 6️⃣ Upload artifact
       - name: Upload AAR
         uses: actions/upload-artifact@v4
         with:
           name: yt-dlp-aar
-          path: yt-dlp/library/build/outputs/aar/*.aar
+          path: ytldp-lib/build/outputs/aar/*.aar
