@@ -23,10 +23,12 @@ jobs:
       # 3️⃣ Install dependencies
       - name: Install dependencies
         run: |
+          sudo apt update
+          sudo apt install -y git python3-pip clang cmake make pkg-config unzip wget patchelf build-essential
           python -m pip install --upgrade pip
           python -m pip install nuitka cython
 
-      # 4️⃣ Download yt-dlp
+      # 4️⃣ Download yt-dlp (ถ้ายังไม่มี)
       - name: Download yt-dlp
         run: |
           if [ ! -d "yt-dlp" ]; then
@@ -37,7 +39,7 @@ jobs:
       - name: Build Linux .so
         run: |
           cd yt-dlp
-          python -m nuitka --module yt_dlp.__main__ --jobs=2 --output-dir=build
+          python -m nuitka --module yt_dlp/__main__.py --jobs=2 --output-dir=build
           cd ..
           mkdir -p output
           SO_FILE=$(find yt-dlp/build -name "*.so" | head -n 1)
@@ -62,25 +64,26 @@ jobs:
           export NDK=$PWD/android-ndk-r27
           export PATH=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
 
-      # 9️⃣ Cross-compile Python for Android arm64
-      - name: Cross-compile Python for Android arm64
+      # 9️⃣ Build Python for Android (arm64-v8a) cross-compile
+      - name: Build Python for Android
         run: |
           mkdir -p python-android
           cd python-android
           wget https://www.python.org/ftp/python/3.12.1/Python-3.12.1.tgz
           tar -xzf Python-3.12.1.tgz
           cd Python-3.12.1
-          ./configure --host=aarch64-linux-android --prefix=$PWD/../install
+          ./configure --host=aarch64-linux-android --prefix=$PWD/../install --enable-shared
           make -j$(nproc)
           make install
           cd ../..
 
-      # 🔟 Cross-compile yt-dlp for Android arm64
-      - name: Cross-compile yt-dlp for Android arm64
+      # 🔟 Cross-compile yt-dlp to Android .so
+      - name: Build Android .so
         run: |
           mkdir -p output
           aarch64-linux-android21-clang -shared \
             -Ipython-android/install/include/python3.12 \
+            -Lpython-android/install/lib \
             yt-dlp/yt_dlp/__main__.py \
             -o output/libytdlp-android.so \
             -fPIC
